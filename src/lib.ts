@@ -1,14 +1,18 @@
 import {
   SigningCosmWasmClient,
   CosmWasmClient,
-  ExecuteResult,
-  MsgExecuteContractEncodeObject,
+  ExecuteInstruction,
 } from "@cosmjs/cosmwasm-stargate";
-import { StdFee, isDeliverTxFailure, logs } from "@cosmjs/stargate";
-import { MsgExecuteContract } from "cosmjs-types/cosmwasm/wasm/v1/tx";
-import { toUtf8 } from "@cosmjs/encoding";
+import { StdFee } from "@cosmjs/stargate";
 
-import { Lunar, QueryMsg, ExecuteMsg, GetLunarResponse } from "./types";
+import {
+  Lunar,
+  QueryMsg,
+  ExecuteMsg,
+  GetLunarResponse,
+  FindLunarResponse,
+  Predicate,
+} from "./types";
 
 export * from "./types";
 
@@ -19,7 +23,7 @@ export class ZodiaticClient {
 
   constructor(rpc: SigningCosmWasmClient | CosmWasmClient) {
     this.rpc = rpc;
-    this.contractAddress = "zodiatic1wug8sewp6cedgkmrmvhl3lf3tulagm9hnvy8p0rppz9yjw0g4wtqqerl82";
+    this.contractAddress = "zodiatic1mf6ptkssddfmxvhdx0ech0k03ktp6kf9yk59renau2gvht3nq2gqpck9r7";
     this.fee = 1.3;
   }
 
@@ -42,6 +46,16 @@ export class ZodiaticClient {
     return this.rpc.queryContractSmart(this.contractAddress, msg) as Promise<GetLunarResponse>;
   }
 
+  async findLunar(year: number, predicates: Predicate[]) {
+    const msg: Pick<QueryMsg, "find_lunar"> = {
+      find_lunar: {
+        year,
+        predicates,
+      },
+    };
+    return this.rpc.queryContractSmart(this.contractAddress, msg) as Promise<FindLunarResponse>;
+  }
+
   async createLunar(creator: string, yyyymmdd: number, lunar: Lunar) {
     const msg: Pick<ExecuteMsg, "create_lunar"> = {
       create_lunar: {
@@ -62,7 +76,7 @@ export class ZodiaticClient {
         },
       } as Pick<ExecuteMsg, "create_lunar">,
     }));
-    return executeMultiple(this.signer, creator, msgs, this.fee);
+    return this.signer.executeMultiple(creator, msgs, this.fee);
   }
 
   get signer(): SigningCosmWasmClient {
@@ -71,41 +85,4 @@ export class ZodiaticClient {
     }
     throw new Error("no signer");
   }
-}
-
-// TODO Below is borrowed from CosmJS 0.29-alpha branch and should be removed
-// when it is released.
-
-type ExecuteInstruction = {
-  contractAddress: string;
-  msg: Record<string, unknown>;
-};
-
-async function executeMultiple(
-  signer: SigningCosmWasmClient,
-  senderAddress: string,
-  instructions: readonly ExecuteInstruction[],
-  fee: number | StdFee | "auto"
-): Promise<ExecuteResult> {
-  const msgs: MsgExecuteContractEncodeObject[] = instructions.map((i) => ({
-    typeUrl: "/cosmwasm.wasm.v1.MsgExecuteContract",
-    value: MsgExecuteContract.fromPartial({
-      sender: senderAddress,
-      contract: i.contractAddress,
-      msg: toUtf8(JSON.stringify(i.msg)),
-    }),
-  }));
-  const result = await signer.signAndBroadcast(senderAddress, msgs, fee);
-  if (isDeliverTxFailure(result)) {
-    throw new Error(
-      `Error when broadcasting tx ${result.transactionHash} at height ${result.height}. Code: ${result.code}; Raw log: ${result.rawLog}`
-    );
-  }
-  return {
-    logs: logs.parseRawLog(result.rawLog),
-    height: result.height,
-    transactionHash: result.transactionHash,
-    gasWanted: result.gasWanted,
-    gasUsed: result.gasUsed,
-  };
 }
